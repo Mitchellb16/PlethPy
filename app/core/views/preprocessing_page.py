@@ -73,7 +73,7 @@ class PreprocessingPage(tk.Frame):
         peak_dropdown = ttk.Combobox(
             options_frame,
             textvariable=self.peak_var,
-            values=["Auto Detection", "Threshold Based", "Manual Selection"],
+            values=["khodad2018", "biosppy", "scipy"],
             state="readonly"
         )
         peak_dropdown.grid(row=0, column=1, sticky="ew", padx=(10, 0))
@@ -84,7 +84,7 @@ class PreprocessingPage(tk.Frame):
         clean_dropdown = ttk.Combobox(
             options_frame,
             textvariable=self.clean_var,
-            values=["Standard Filter", "Adaptive Filter", "None"],
+            values=["khodadad2018", "BioSPPy", "hampel"],
             state="readonly"
         )
         clean_dropdown.grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=(10, 0))
