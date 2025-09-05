@@ -1,110 +1,59 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Fixed Model.py - Self-contained with safe imports
 @author: mitchell
 """
 import pandas as pd
+import numpy as np
 import os
+import neurokit2 as nk # Note, NK2 version rolled back for Python 3.9
+from ..utils.data_io import load_smr, load_csv
+from ..utils.processing import clean_signal, process_full_pipeline, extract_peaks
 
-# Safe imports with fallbacks
-try:
-    import neurokit2 as nk
-    NEUROKIT_AVAILABLE = True
-except ImportError:
-    print("Warning: neurokit2 not installed. Using placeholder functions.")
-    NEUROKIT_AVAILABLE = False
-
-try:
-    import spike2loader as spl
-    SPIKE2_AVAILABLE = True
-except ImportError:
-    print("Warning: spike2loader not installed. SMR files will use placeholder loading.")
-    SPIKE2_AVAILABLE = False
-
-# Placeholder utility functions (replace with your actual implementations)
-def load_smr(file_path):
-    """Placeholder for SMR file loading"""
-    if not os.path.exists(file_path):
-        return None, None
-    # Return dummy data for now
-    return pd.Series([0, 1, 2, 3, 4]), 1000
-
-def load_csv(file_path):
-    """Placeholder for CSV file loading"""
-    try:
-        df = pd.read_csv(file_path)
-        # Assuming the signal is in the first column
-        signal = df.iloc[:, 0]
-        sampling_rate = 1000  # Default sampling rate
-        return signal, sampling_rate
-    except Exception as e:
-        print(f"Error loading CSV file: {e}")
-        return None, None
-
-def process_signal(raw_data, sampling_rate, low_freq, high_freq):
-    """Placeholder for signal processing"""
-    if NEUROKIT_AVAILABLE:
-        # Use actual neurokit2 processing
-        processed_df, info = nk.rsp_process(
-            signal=raw_data,
-            sampling_rate=sampling_rate,
-            method="neurokit"
-        )
-        return processed_df['RSP_Clean'], processed_df['RSP_Quality']
-    else:
-        # Return dummy processed data
-        return raw_data, pd.Series([1] * len(raw_data))
-
-def get_respiratory_features(processed_data, sampling_rate):
-    """Placeholder for feature extraction"""
-    if NEUROKIT_AVAILABLE:
-        # Use actual neurokit2 feature extraction
-        features = nk.rsp_analyze(processed_data, sampling_rate=sampling_rate)
-        return features
-    else:
-        # Return dummy features
-        return {'breathing_rate': 15.0, 'amplitude': 1.0}
-
-class Model:  # Changed name to match import in main.py
+class Model:  
     def __init__(self):
-        # Data and state variables
-        self.raw_data = None
-        self.processed_data = None
-        self.features = None
-        self.quality = None
-        self.sampling_rate = None
+        
+        # Data variables
+        self.file_paths = ()
+        self.raw_data = {}
+        self.processed_data = {}
+        
+        # Processing variables
+        self.cleaning_parameters = {
+            'cleaning_method': None,
+            'peak_extraction_method': None,
+            'low_freq': 0.1,  
+            'high_freq': 0.4,
+        }
+        self.selected_features = []
+        
+        # state variables
         self.file_loaded = False
         self.preprocessed = False
-        self.parameters = {
-            'file_path': None,
-            'low_freq': 0.1,  # Default parameters for filtering
-            'high_freq': 0.4,
-            'epoch_length': None
-        }
+        
     
     # Data Loading Methods
-    def load_file(self, file_path):
+    def load_file(self, file_paths):
         """Loads data from a file and updates the model's state."""
         try:
-            self.parameters['file_path'] = file_path
+            self.file_paths = file_paths
             
-            if file_path.endswith('.smr') or file_path.endswith('.smrx'):
-                self.raw_data, self.sampling_rate = load_smr(file_path)
-            elif file_path.endswith('.csv'):
-                self.raw_data, self.sampling_rate = load_csv(file_path)
-            else:
-                # For testing, accept any file and create dummy data
-                print(f"Unknown file type for {file_path}, creating dummy data")
-                self.raw_data = pd.Series([i for i in range(1000)])
-                self.sampling_rate = 1000
+            for file_path in self.file_paths:
             
-            if self.raw_data is not None:
-                self.file_loaded = True
-                return True
-            else:
-                self.file_loaded = False
-                return False
+                if file_path.endswith('.smr') or file_path.endswith('.smrx'):
+                    self.raw_data[file_path] = load_smr(file_path)
+                    
+                elif file_path.endswith('.csv'):
+                    self.raw_data, self.sampling_rate = load_csv(file_path)
+                else:
+                    print('File type is not .smr, .smrx, or .csv. No file loaded')
+                    
+                if self.raw_data is not None:
+                    self.file_loaded = True
+                    return True
+                else:
+                    self.file_loaded = False
+                    return False
                 
         except Exception as e:
             print(f"Error loading file: {e}")

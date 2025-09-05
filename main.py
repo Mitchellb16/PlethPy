@@ -7,11 +7,11 @@ from tkinter import messagebox
 # -----------------------------
 # Imports
 # -----------------------------
-from core.Model import Model
-from core.Controller import Controller
-from core.views.home_page import HomePage
-from core.views.preprocessing_page import PreprocessingPage
-from core.views.processing_page import ProcessingPage
+from app.core.Model import Model
+from app.core.Controller import Controller
+from app.core.views.home_page import HomePage
+from app.core.views.preprocessing_page import PreprocessingPage
+from app.core.views.processing_page import ProcessingPage
 
 
 # -----------------------------

@@ -98,7 +98,9 @@ class HomePage(tk.Frame):
     # Event handlers
     def on_load_file_click(self):
         """Handle load file button click - goes through controller"""
-        filename = filedialog.askopenfilename(
+        
+        # this returns a tuple of paths
+        filename = filedialog.askopenfilenames(
             title="Select a Spike2 file",
             filetypes=(("Spike2 Files", "*.s2rx *.smrx"), ("All files", "*.*"))
         )
