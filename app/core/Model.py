@@ -17,9 +17,12 @@ class Model:
         self.file_paths = ()
         self.raw_data = {}
         self.processed_data = {}
+        self.quality = {}
+        self.features = {}
+        self.sampling_rate = {}
         
-        # Processing variables
-        self.cleaning_parameters = {
+        # Processing variables - Fixed variable name
+        self.parameters = {
             'cleaning_method': None,
             'peak_extraction_method': None,
             'low_freq': 0.1,  
@@ -30,59 +33,98 @@ class Model:
         # state variables
         self.file_loaded = False
         self.preprocessed = False
-        
-    
+
     # Data Loading Methods
-    def load_file(self, file_paths):
-        """Loads data from a file and updates the model's state."""
+    def load_file(self, file_paths, stream_indices=None):
+        """
+        Load only the selected streams from SMR files.
+        """
+        if isinstance(file_paths, str):
+            file_paths = [file_paths]
+        
+        # Initialize data containers BEFORE the loop - Fixed indentation
+        self.raw_data = {}
+        self.sampling_rate = {}
+
         try:
-            self.file_paths = file_paths
-            
-            for file_path in self.file_paths:
-            
-                if file_path.endswith('.smr') or file_path.endswith('.smrx'):
-                    self.raw_data[file_path] = load_smr(file_path)
-                    
-                elif file_path.endswith('.csv'):
-                    self.raw_data, self.sampling_rate = load_csv(file_path)
-                else:
-                    print('File type is not .smr, .smrx, or .csv. No file loaded')
-                    
-                if self.raw_data is not None:
-                    self.file_loaded = True
-                    return True
-                else:
-                    self.file_loaded = False
-                    return False
+            for file_path in file_paths:
+                ext = os.path.splitext(file_path)[1].lower()
                 
+                if ext in ['.smr', '.smrx']:
+                    # Default to 0 if no stream chosen
+                    idx = stream_indices.get(file_path, 0) if stream_indices else 0
+                    print(f"Loading SMR file: {file_path}, stream index: {idx}")  # Debug
+                    self.raw_data[file_path], self.sampling_rate[file_path] = load_smr(file_path, stream_index=idx)
+                    print(f"Loaded data shape: {self.raw_data[file_path].shape if hasattr(self.raw_data[file_path], 'shape') else 'N/A'}")  # Debug
+
+                elif ext == '.csv':
+                    print(f"Loading CSV file: {file_path}")  # Debug
+                    self.raw_data[file_path], self.sampling_rate[file_path] = load_csv(file_path)
+                else:
+                    print(f"Unsupported file type: {ext}")
+                    continue
+
+            # Set file_loaded if at least one file loaded successfully
+            self.file_loaded = len(self.raw_data) > 0
+            print(f"File loading complete. Files loaded: {len(self.raw_data)}, file_loaded: {self.file_loaded}")  # Debug
+            return self.file_loaded
+
         except Exception as e:
-            print(f"Error loading file: {e}")
+            print(f"Error loading files: {e}")
+            import traceback
+            traceback.print_exc()  # Print full traceback for debugging
             self.file_loaded = False
             return False
-    
-    # Pre-processing and Analysis Methods
-    def preprocess_data(self):  # Changed name to match controller call
-        """Processes the raw signal based on current parameters."""
+
+    def preprocess_data(self):
+        """
+        Process all loaded raw signals according to the current parameters.
+        Updates self.processed_data and self.features.
+        """
+        if not self.file_loaded:
+            print("No file loaded. Cannot preprocess.")
+            self.preprocessed = False
+            return False
+
         try:
-            if self.raw_data is not None:
-                self.processed_data, self.quality = process_signal(
-                    self.raw_data,
-                    self.sampling_rate,
-                    self.parameters['low_freq'],
-                    self.parameters['high_freq']
+            self.processed_data = {}
+            self.quality = {}
+            self.features = {}
+
+            # Loop over all loaded files
+            for file_path, signal in self.raw_data.items():
+                fs = self.sampling_rate[file_path]
+
+                # Apply your processing
+                from ..utils.processing import process_signal, get_respiratory_features
+                processed, quality = process_signal(
+                    {file_path: signal}, 
+                    {file_path: fs}, 
+                    low_freq=self.parameters.get('low_freq', 0.1),
+                    high_freq=self.parameters.get('high_freq', 0.4)
                 )
-                self.preprocessed = True
-                return True
-            else:
-                return False
+                self.processed_data[file_path] = processed[file_path]
+                self.quality[file_path] = quality[file_path]
+
+                # Extract features
+                features = get_respiratory_features(
+                    {file_path: self.processed_data[file_path]}, 
+                    {file_path: fs}
+                )
+                self.features[file_path] = features[file_path]
+
+            self.preprocessed = True
+            return True
+
         except Exception as e:
             print(f"Error preprocessing data: {e}")
             self.preprocessed = False
             return False
-    
+
     def extract_features(self):
         """Extracts key features from the processed signal."""
         if self.processed_data is not None:
+            from ..utils.processing import get_respiratory_features
             self.features = get_respiratory_features(self.processed_data, self.sampling_rate)
     
     # State Management Methods
@@ -169,3 +211,32 @@ class Model:
             'version': '1.0.0',
             'authors': 'Your Name, Collaborator Name'
         }
+        
+    def get_smr_streams(self, file_path):
+        """
+        Returns all raw analog signals from the SMR file as pandas Series.
+        Does NOT apply any filtering or cleaning.
+        """
+        import neo
+        import pandas as pd
+        import numpy as np
+        
+        streams = []
+        
+        try:
+            reader = neo.io.Spike2IO(filename=file_path)
+            block = reader.read_block(lazy=False)
+            seg = block.segments[0]
+            
+            for anasig in seg.analogsignals:
+                series = pd.Series(np.array(anasig).flatten())
+                streams.append((anasig.name, series, float(anasig.sampling_rate)))
+
+            print(f"Found {len(streams)} analog signals in {file_path}")  # Debug
+            return streams
+
+        except Exception as e:
+            print(f"Error reading SMR streams: {e}")
+            import traceback
+            traceback.print_exc()  # Print full traceback for debugging
+            return []
