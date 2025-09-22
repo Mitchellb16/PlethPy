@@ -8,7 +8,6 @@ class HomePage(tk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         self.controller = controller
-        self.canvas_widget = None  # Track canvas widget for cleanup
         self.setup_ui()
     
     def setup_ui(self):
@@ -36,11 +35,11 @@ class HomePage(tk.Frame):
     def setup_file_section(self):
         """Setup file loading section"""
         
-        # Load button - Now goes through controller!
+        # Load button
         load_button = tk.Button(
             self, 
             text="Load File", 
-            command=self.on_load_file_click,  # Handler method
+            command=self.on_load_file_click,
             font=("Arial", 12)
         )
         load_button.grid(row=1, column=0, columnspan=3, pady=10)
@@ -75,11 +74,11 @@ class HomePage(tk.Frame):
         )
         help_button.grid(row=3, column=1, sticky="ew", padx=20, pady=10)
         
-        # Quit button - Goes through controller
+        # Quit button
         quit_button = tk.Button(
             self, 
             text="Quit", 
-            command=self.controller.app.quit,  # Proper quit method
+            command=self.controller.app.quit,
             font=("Arial", 12)
         )
         quit_button.grid(row=3, column=2, sticky="e", padx=20, pady=10)
@@ -96,13 +95,9 @@ class HomePage(tk.Frame):
         )
         self.next_button.grid(row=4, column=0, columnspan=3, pady=10)
     
-    # Event handlers
     def on_load_file_click(self):
-        """Handle file loading with stream preview and selection"""
-        import matplotlib.pyplot as plt
-        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-        import numpy as np
-        from tkinter import simpledialog, messagebox
+        """Handle file loading with stream preview and selection in popup"""
+        from tkinter import messagebox
 
         # Open file dialog
         filename = filedialog.askopenfilenames(
@@ -124,70 +119,167 @@ class HomePage(tk.Frame):
 
         print(f"Found {len(streams)} streams")  # Debug print
 
-        # Clean up previous canvas if it exists
-        if self.canvas_widget:
-            self.canvas_widget.destroy()
-            self.canvas_widget = None
+        # Open stream selection popup
+        selected_idx = self.show_stream_selection_popup(file_path, streams)
+        
+        if selected_idx is not None:
+            print(f"User selected stream index: {selected_idx}")  # Debug print
 
-        # Create matplotlib preview of all streams
-        fig, axes = plt.subplots(len(streams), 1, figsize=(8, 2*len(streams)))
-        if len(streams) == 1:
-            axes = [axes]
+            # Load chosen stream through the model
+            try:
+                success = self.controller.model.load_file(file_path, stream_indices={file_path: selected_idx})
+                print(f"Load file result: {success}")  # Debug print
+                
+                if success:
+                    # Update both the UI and notify the controller
+                    self.update_file_status(file_path)
+                    
+                    # Notify controller that file has been loaded
+                    if hasattr(self.controller, 'on_file_loaded'):
+                        self.controller.on_file_loaded(file_path)
+                    
+                    print("File loaded successfully, next button should be enabled")  # Debug print
+                    messagebox.showinfo("Success", f"Successfully loaded stream {selected_idx}: {streams[selected_idx][0]}")
+                else:
+                    print("Failed to load file")  # Debug print
+                    messagebox.showerror("Error", "Failed to load the selected stream.")
+                    self.clear_file_status()
+                    
+            except Exception as e:
+                print(f"Error loading file: {e}")  # Debug print
+                import traceback
+                traceback.print_exc()
+                messagebox.showerror("Error", f"Error loading file: {str(e)}")
+                self.clear_file_status()
 
-        for ax, (name, series, sr) in zip(axes, streams):
-            # Plot a subset for preview (first 10 seconds or all data if shorter)
-            max_samples = int(10 * sr)  # 10 seconds worth of data
+    def show_stream_selection_popup(self, file_path, streams):
+        """Show popup window for stream selection with preview and dropdown"""
+        import tkinter as tk
+        from tkinter import ttk
+        import matplotlib.pyplot as plt
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+        import numpy as np
+
+        # Create popup window
+        popup = tk.Toplevel(self)
+        popup.title("Select Stream to Load")
+        popup.geometry("900x700")
+        popup.transient(self)  # Make it modal to the main window
+        popup.grab_set()  # Make it modal
+        
+        # Center the popup
+        popup.update_idletasks()
+        x = (popup.winfo_screenwidth() // 2) - (450)
+        y = (popup.winfo_screenheight() // 2) - (350)
+        popup.geometry(f"900x700+{x}+{y}")
+
+        # Result variable
+        selected_index = None
+
+        def on_dropdown_change(event=None):
+            """Update plot when dropdown selection changes"""
+            idx = dropdown.current()
+            if idx >= 0:
+                update_plot(idx)
+
+        def update_plot(stream_idx):
+            """Update the plot with the selected stream"""
+            name, series, sr = streams[stream_idx]
+            
+            # Clear previous plot
+            ax.clear()
+            
+            # Plot preview (first 60 seconds or all data if shorter)
+            max_samples = int(60 * sr)
             preview_data = series.iloc[:max_samples] if len(series) > max_samples else series
             time_axis = np.arange(len(preview_data)) / sr
             
-            ax.plot(time_axis, preview_data)
-            ax.set_title(f"Stream {streams.index((name, series, sr))}: {name} (SR: {sr:.1f} Hz)")
+            ax.plot(time_axis, preview_data, linewidth=0.8, color='blue')
+            ax.set_title(f"Stream {stream_idx}: {name} (SR: {sr:.1f} Hz)", fontsize=14, pad=15)
             ax.set_xlabel("Time (s)")
             ax.set_ylabel("Amplitude")
+            ax.grid(True, alpha=0.3)
             
-        plt.tight_layout()
-        
-        # Embed the matplotlib figure in Tkinter using grid
-        canvas = FigureCanvasTkAgg(fig, master=self)
-        canvas.draw()
-        self.canvas_widget = canvas.get_tk_widget()
-        self.canvas_widget.grid(row=5, column=0, columnspan=3, pady=10, sticky="nsew")
-        
-        # Configure row weight so the plot can expand
-        self.rowconfigure(5, weight=1)
-
-        # Ask user which stream to load
-        idx = simpledialog.askinteger("Select Stream",
-                                      f"Enter stream index (0-{len(streams)-1}):\n\n" +
-                                      "\n".join([f"{i}: {name}" for i, (name, _, _) in enumerate(streams)]),
-                                      parent=self,
-                                      minvalue=0,
-                                      maxvalue=len(streams)-1)
-        if idx is None:
-            return
-
-        print(f"User selected stream index: {idx}")  # Debug print
-
-        # Load chosen stream through the model
-        try:
-            success = self.controller.model.load_file(file_path, stream_indices={file_path: idx})
-            print(f"Load file result: {success}")  # Debug print
+            # Add some padding around the data
+            y_range = preview_data.max() - preview_data.min()
+            if y_range > 0:
+                y_pad = y_range * 0.05
+                ax.set_ylim(preview_data.min() - y_pad, preview_data.max() + y_pad)
             
-            if success:
-                self.update_file_status(file_path)
-                print("File loaded successfully, next button should be enabled")  # Debug print
-                messagebox.showinfo("Success", f"Successfully loaded stream {idx}: {streams[idx][0]}")
-            else:
-                print("Failed to load file")  # Debug print
-                messagebox.showerror("Error", "Failed to load the selected stream.")
-                self.clear_file_status()
-                
-        except Exception as e:
-            print(f"Error loading file: {e}")  # Debug print
-            import traceback
-            traceback.print_exc()
-            messagebox.showerror("Error", f"Error loading file: {str(e)}")
-            self.clear_file_status()
+            canvas.draw()
+
+        def on_select():
+            """Handle stream selection"""
+            nonlocal selected_index
+            selected_index = dropdown.current()
+            popup.destroy()
+
+        def on_cancel():
+            """Handle cancellation"""
+            popup.destroy()
+
+        # Create UI elements using pack (works fine in popup)
+        
+        # Title label
+        title_label = tk.Label(popup, text=f"File: {os.path.basename(file_path)}", 
+                              font=("Arial", 12, "bold"))
+        title_label.pack(pady=10)
+
+        # Instructions
+        instruction_label = tk.Label(popup, 
+                                    text="Select a stream from the dropdown to preview, then click 'Load Selected Stream'",
+                                    font=("Arial", 10))
+        instruction_label.pack(pady=5)
+
+        # Dropdown for stream selection
+        dropdown_frame = tk.Frame(popup)
+        dropdown_frame.pack(pady=10)
+        
+        tk.Label(dropdown_frame, text="Stream:").pack(side=tk.LEFT, padx=5)
+        
+        stream_names = [f"{i}: {name} ({sr:.1f} Hz)" for i, (name, _, sr) in enumerate(streams)]
+        dropdown = ttk.Combobox(dropdown_frame, values=stream_names, state="readonly", width=60)
+        dropdown.pack(side=tk.LEFT, padx=5)
+        dropdown.bind('<<ComboboxSelected>>', on_dropdown_change)
+        dropdown.current(0)  # Select first stream by default
+
+        # Create matplotlib figure and canvas
+        fig, ax = plt.subplots(1, 1, figsize=(12, 6))
+        canvas = FigureCanvasTkAgg(fig, master=popup)
+        canvas_widget = canvas.get_tk_widget()
+        canvas_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # Add navigation toolbar for zooming (works fine with pack in popup)
+        toolbar = NavigationToolbar2Tk(canvas, popup)
+        toolbar.update()
+        toolbar.pack(side=tk.BOTTOM, fill=tk.X)
+
+        # Instructions for toolbar
+        toolbar_instructions = tk.Label(popup, 
+                                       text="💡 Use toolbar above to zoom, pan, and navigate. Click home button to reset view.",
+                                       font=("Arial", 9), fg="blue")
+        toolbar_instructions.pack(pady=5)
+
+        # Button frame
+        button_frame = tk.Frame(popup)
+        button_frame.pack(side=tk.BOTTOM, pady=10)
+
+        # Buttons
+        select_btn = tk.Button(button_frame, text="Load Selected Stream", command=on_select, 
+                              bg="green", fg="white", font=("Arial", 12, "bold"))
+        select_btn.pack(side=tk.LEFT, padx=10)
+
+        cancel_btn = tk.Button(button_frame, text="Cancel", command=on_cancel,
+                              font=("Arial", 12))
+        cancel_btn.pack(side=tk.LEFT, padx=10)
+
+        # Initialize with first stream
+        update_plot(0)
+
+        # Wait for user to make selection
+        popup.wait_window()
+        
+        return selected_index
 
     def show_about(self):
         """Show about dialog"""
@@ -208,11 +300,11 @@ class HomePage(tk.Frame):
             "Help",
             "Getting Started:\n\n"
             "1. Click 'Load File' to select a Spike2 data file\n"
-            "2. Preview all available streams in the file\n"
-            "3. Select the stream you want to analyze\n"
-            "4. Once loaded, click 'Next' to proceed to preprocessing\n"
-            "5. Configure preprocessing parameters\n"
-            "6. Run analysis and view results\n\n"
+            "2. A preview window will open showing all available streams\n"
+            "3. Use the dropdown to select different streams\n"
+            "4. Use the toolbar to zoom in/out and examine signals\n"
+            "5. Click 'Load Selected Stream' when you find the right one\n"
+            "6. Once loaded, click 'Next' to proceed to preprocessing\n\n"
             "For more detailed help, please refer to the documentation."
         )
     
@@ -280,73 +372,3 @@ class HomePage(tk.Frame):
             # Fallback text if no images found
             self.image_label.config(text="PlethPy\nRespiratory Signal Analysis", 
                                   font=("Arial", 20, "bold"))
-            
-    # Utility methods for stream selection (kept for backwards compatibility)
-    def ask_user_select_stream(self, stream_list):
-        """
-        Display a simple Tkinter popup for the user to select one stream.
-        Returns the selected index or None if cancelled.
-        """
-        from tkinter import simpledialog, messagebox
-
-        # Build the options as a string list
-        options = "\n".join(f"{i}: {name}" for i, name in enumerate(stream_list))
-        prompt = f"Select a stream by number:\n\n{options}\n\nEnter index:"
-
-        # Ask user for input
-        root = self.winfo_toplevel()  # parent window
-        while True:
-            answer = simpledialog.askstring("Select Stream", prompt, parent=root)
-            if answer is None:
-                return None  # user cancelled
-            try:
-                idx = int(answer)
-                if 0 <= idx < len(stream_list):
-                    return idx
-            except ValueError:
-                pass
-            # Invalid input, loop again
-            messagebox.showwarning("Invalid Input", "Please enter a valid index.")
-            
-    def preview_smr_stream(self, file_path):
-        """Alternative method for previewing SMR streams (kept for compatibility)"""
-        import matplotlib.pyplot as plt
-        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-        from tkinter import simpledialog, messagebox
-        import numpy as np
-        
-        streams = self.controller.model.get_smr_streams(file_path)
-        if not streams:
-            messagebox.showerror("Error", "No analog signals found in file.")
-            return None
-
-        # Clean up previous canvas if it exists
-        if self.canvas_widget:
-            self.canvas_widget.destroy()
-            self.canvas_widget = None
-
-        fig, axes = plt.subplots(len(streams), 1, figsize=(6, 2*len(streams)))
-        if len(streams) == 1:
-            axes = [axes]
-
-        for ax, (name, series, sr) in zip(axes, streams):
-            ax.plot(np.arange(len(series))/sr, series)
-            ax.set_title(name)
-            ax.set_xlabel("Time (s)")
-
-        plt.tight_layout()
-
-        # Embed in Tkinter using grid instead of pack
-        canvas = FigureCanvasTkAgg(fig, master=self)
-        canvas.draw()
-        self.canvas_widget = canvas.get_tk_widget()
-        self.canvas_widget.grid(row=5, column=0, columnspan=3, pady=10, sticky="nsew")
-        
-        # Configure row weight so the plot can expand
-        self.rowconfigure(5, weight=1)
-
-        # Ask user for stream index
-        idx = simpledialog.askinteger("Select Stream",
-                                      f"Enter stream index (0-{len(streams)-1}):",
-                                      parent=self)
-        return idx
