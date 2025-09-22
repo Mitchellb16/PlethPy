@@ -8,6 +8,7 @@ Created on Thu Aug 28 18:07:38 2025
 # -----------------------------
 # Controller Class
 # -----------------------------
+from tkinter import messagebox
 class Controller:
     """
     Controller class that manages application state and mediates between
@@ -17,8 +18,7 @@ class Controller:
     def __init__(self, app, model):
         self.app = app
         self.model = model
-        self.file_loaded = False
-        self.data_preprocessed = False
+        # Remove duplicate state - use model as single source of truth
         self.current_frame = "HomePage"
         
     def show_frame(self, page_name):
@@ -55,24 +55,24 @@ class Controller:
         if page_name == "HomePage":
             return True
             
-        # Preprocessing page requires a loaded file
+        # Preprocessing page requires a loaded file - CHECK MODEL STATE
         if page_name == "PreprocessingPage":
-            if not self.file_loaded:
+            if not self.model.file_loaded:  # Use model's state, not controller's
                 messagebox.showwarning(
                     "File Required", 
                     "Please load a data file before accessing the preprocessing page."
                 )
                 return False
                 
-        # Processing page requires file loaded and preprocessed
+        # Processing page requires file loaded and preprocessed - CHECK MODEL STATE
         if page_name == "ProcessingPage":
-            if not self.file_loaded:
+            if not self.model.file_loaded:  # Use model's state
                 messagebox.showwarning(
                     "File Required", 
                     "Please load a data file before accessing the processing page."
                 )
                 return False
-            if not self.data_preprocessed:
+            if not self.model.preprocessed:  # Use model's state
                 messagebox.showwarning(
                     "Preprocessing Required", 
                     "Please preprocess your data before accessing the processing page."
@@ -81,18 +81,13 @@ class Controller:
                 
         return True
     
-    # State management methods
-    def set_file_loaded(self, loaded):
-        """Update file loaded status"""
-        self.file_loaded = loaded
-        if loaded:
-            print("File loaded - preprocessing page now available")
-    
-    def set_data_preprocessed(self, preprocessed):
-        """Update data preprocessed status"""
-        self.data_preprocessed = preprocessed
-        if preprocessed:
-            print("Data preprocessed - processing page now available")
+    # Add method to be called by home page after successful file loading
+    def on_file_loaded(self, file_path):
+        """Called by views when a file is successfully loaded"""
+        print(f"Controller notified: file loaded - {file_path}")
+        # No need to duplicate state, model already has file_loaded = True
+        # Just log for debugging
+        print(f"Model file_loaded state: {self.model.file_loaded}")
     
     def get_model(self):
         """Get the model instance"""
@@ -104,7 +99,6 @@ class Controller:
         try:
             success = self.model.load_file(file_path)
             if success:
-                self.set_file_loaded(True)
                 # Update the home page to reflect loaded file
                 home_page = self.app.frames.get("HomePage")
                 if home_page:
@@ -113,12 +107,11 @@ class Controller:
                 # Update preprocessing page with available files
                 preprocessing_page = self.app.frames.get("PreprocessingPage")
                 if preprocessing_page:
-                    # For now, just update with the single loaded file
-                    # In future, this could be a list of loaded files
                     import os
                     filename = os.path.basename(file_path)
                     preprocessing_page.update_file_list([filename])
                 
+                print("File loaded through controller - preprocessing page now available")
                 return True
             else:
                 home_page = self.app.frames.get("HomePage")
@@ -164,11 +157,11 @@ class Controller:
             
             success = self.model.preprocess_data()
             if success:
-                self.set_data_preprocessed(True)
                 # Update preprocessing page to show results
                 if preprocessing_page:
                     preprocessing_page.enable_next_button()
                 messagebox.showinfo("Success", "Data preprocessed successfully!")
+                print("Data preprocessed - processing page now available")
                 return True
             else:
                 if preprocessing_page:
