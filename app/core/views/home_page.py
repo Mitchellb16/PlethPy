@@ -96,7 +96,7 @@ class HomePage(tk.Frame):
         self.next_button.grid(row=4, column=0, columnspan=3, pady=10)
     
     def on_load_file_click(self):
-        """Handle file loading with stream preview and selection in popup"""
+        """Simple file loading - just selects file, stream selection happens in preprocessing"""
         from tkinter import messagebox
 
         # Open file dialog
@@ -107,179 +107,29 @@ class HomePage(tk.Frame):
         if not filename:
             return
         
-        # Just take the first file for preview
-        file_path = filename[0]  # unwrap from tuple
-        print(f"Selected file: {file_path}")  # Debug print
-    
-        # Get available streams from the model
+        # Just take the first file
+        file_path = filename[0]
+        print(f"Selected file: {file_path}")
+        
+        # Verify file has streams before proceeding
         streams = self.controller.model.get_smr_streams(file_path)
         if not streams:
             messagebox.showerror("Error", "No analog signals found in file.")
             return
-
-        print(f"Found {len(streams)} streams")  # Debug print
-
-        # Open stream selection popup
-        selected_idx = self.show_stream_selection_popup(file_path, streams)
         
-        if selected_idx is not None:
-            print(f"User selected stream index: {selected_idx}")  # Debug print
-
-            # Load chosen stream through the model
-            try:
-                success = self.controller.model.load_file(file_path, stream_indices={file_path: selected_idx})
-                print(f"Load file result: {success}")  # Debug print
-                
-                if success:
-                    # Update both the UI and notify the controller
-                    self.update_file_status(file_path)
-                    
-                    # Notify controller that file has been loaded
-                    if hasattr(self.controller, 'on_file_loaded'):
-                        self.controller.on_file_loaded(file_path)
-                    
-                    print("File loaded successfully, next button should be enabled")  # Debug print
-                    messagebox.showinfo("Success", f"Successfully loaded stream {selected_idx}: {streams[selected_idx][0]}")
-                else:
-                    print("Failed to load file")  # Debug print
-                    messagebox.showerror("Error", "Failed to load the selected stream.")
-                    self.clear_file_status()
-                    
-            except Exception as e:
-                print(f"Error loading file: {e}")  # Debug print
-                import traceback
-                traceback.print_exc()
-                messagebox.showerror("Error", f"Error loading file: {str(e)}")
-                self.clear_file_status()
-
-    def show_stream_selection_popup(self, file_path, streams):
-        """Show popup window for stream selection with preview and dropdown"""
-        import tkinter as tk
-        from tkinter import ttk
-        import matplotlib.pyplot as plt
-        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-        import numpy as np
-
-        # Create popup window
-        popup = tk.Toplevel(self)
-        popup.title("Select Stream to Load")
-        popup.geometry("900x700")
-        popup.transient(self)  # Make it modal to the main window
-        popup.grab_set()  # Make it modal
+        print(f"Found {len(streams)} streams")
         
-        # Center the popup
-        popup.update_idletasks()
-        x = (popup.winfo_screenwidth() // 2) - (450)
-        y = (popup.winfo_screenheight() // 2) - (350)
-        popup.geometry(f"900x700+{x}+{y}")
-
-        # Result variable
-        selected_index = None
-
-        def on_dropdown_change(event=None):
-            """Update plot when dropdown selection changes"""
-            idx = dropdown.current()
-            if idx >= 0:
-                update_plot(idx)
-
-        def update_plot(stream_idx):
-            """Update the plot with the selected stream"""
-            name, series, sr = streams[stream_idx]
-            
-            # Clear previous plot
-            ax.clear()
-            
-            # Plot preview (first 60 seconds or all data if shorter)
-            max_samples = int(60 * sr)
-            preview_data = series.iloc[:max_samples] if len(series) > max_samples else series
-            time_axis = np.arange(len(preview_data)) / sr
-            
-            ax.plot(time_axis, preview_data, linewidth=0.8, color='blue')
-            ax.set_title(f"Stream {stream_idx}: {name} (SR: {sr:.1f} Hz)", fontsize=14, pad=15)
-            ax.set_xlabel("Time (s)")
-            ax.set_ylabel("Amplitude")
-            ax.grid(True, alpha=0.3)
-            
-            # Add some padding around the data
-            y_range = preview_data.max() - preview_data.min()
-            if y_range > 0:
-                y_pad = y_range * 0.05
-                ax.set_ylim(preview_data.min() - y_pad, preview_data.max() + y_pad)
-            
-            canvas.draw()
-
-        def on_select():
-            """Handle stream selection"""
-            nonlocal selected_index
-            selected_index = dropdown.current()
-            popup.destroy()
-
-        def on_cancel():
-            """Handle cancellation"""
-            popup.destroy()
-
-        # Create UI elements using pack (works fine in popup)
+        # Store the file path in the model for preprocessing page to use
+        self.controller.model.selected_file_path = file_path
         
-        # Title label
-        title_label = tk.Label(popup, text=f"File: {os.path.basename(file_path)}", 
-                              font=("Arial", 12, "bold"))
-        title_label.pack(pady=10)
-
-        # Instructions
-        instruction_label = tk.Label(popup, 
-                                    text="Select a stream from the dropdown to preview, then click 'Load Selected Stream'",
-                                    font=("Arial", 10))
-        instruction_label.pack(pady=5)
-
-        # Dropdown for stream selection
-        dropdown_frame = tk.Frame(popup)
-        dropdown_frame.pack(pady=10)
+        # Update UI and enable next button
+        self.update_file_status(file_path)
         
-        tk.Label(dropdown_frame, text="Stream:").pack(side=tk.LEFT, padx=5)
+        # Notify controller
+        if hasattr(self.controller, 'on_file_selected'):
+            self.controller.on_file_selected(file_path)
         
-        stream_names = [f"{i}: {name} ({sr:.1f} Hz)" for i, (name, _, sr) in enumerate(streams)]
-        dropdown = ttk.Combobox(dropdown_frame, values=stream_names, state="readonly", width=60)
-        dropdown.pack(side=tk.LEFT, padx=5)
-        dropdown.bind('<<ComboboxSelected>>', on_dropdown_change)
-        dropdown.current(0)  # Select first stream by default
-
-        # Create matplotlib figure and canvas
-        fig, ax = plt.subplots(1, 1, figsize=(12, 6))
-        canvas = FigureCanvasTkAgg(fig, master=popup)
-        canvas_widget = canvas.get_tk_widget()
-        canvas_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        # Add navigation toolbar for zooming (works fine with pack in popup)
-        toolbar = NavigationToolbar2Tk(canvas, popup)
-        toolbar.update()
-        toolbar.pack(side=tk.BOTTOM, fill=tk.X)
-
-        # Instructions for toolbar
-        toolbar_instructions = tk.Label(popup, 
-                                       text="💡 Use toolbar above to zoom, pan, and navigate. Click home button to reset view.",
-                                       font=("Arial", 9), fg="blue")
-        toolbar_instructions.pack(pady=5)
-
-        # Button frame
-        button_frame = tk.Frame(popup)
-        button_frame.pack(side=tk.BOTTOM, pady=10)
-
-        # Buttons
-        select_btn = tk.Button(button_frame, text="Load Selected Stream", command=on_select, 
-                              bg="green", fg="white", font=("Arial", 12, "bold"))
-        select_btn.pack(side=tk.LEFT, padx=10)
-
-        cancel_btn = tk.Button(button_frame, text="Cancel", command=on_cancel,
-                              font=("Arial", 12))
-        cancel_btn.pack(side=tk.LEFT, padx=10)
-
-        # Initialize with first stream
-        update_plot(0)
-
-        # Wait for user to make selection
-        popup.wait_window()
-        
-        return selected_index
+        messagebox.showinfo("Success", f"File selected: {os.path.basename(file_path)}\nProceed to Preprocessing to select stream and configure analysis.")
 
     def show_about(self):
         """Show about dialog"""
@@ -300,11 +150,10 @@ class HomePage(tk.Frame):
             "Help",
             "Getting Started:\n\n"
             "1. Click 'Load File' to select a Spike2 data file\n"
-            "2. A preview window will open showing all available streams\n"
-            "3. Use the dropdown to select different streams\n"
-            "4. Use the toolbar to zoom in/out and examine signals\n"
-            "5. Click 'Load Selected Stream' when you find the right one\n"
-            "6. Once loaded, click 'Next' to proceed to preprocessing\n\n"
+            "2. Click 'Next' to go to the Preprocessing page\n"
+            "3. Select which stream to analyze\n"
+            "4. Configure preprocessing parameters\n"
+            "5. Run preprocessing and proceed to analysis\n\n"
             "For more detailed help, please refer to the documentation."
         )
     
@@ -312,16 +161,15 @@ class HomePage(tk.Frame):
     def update_file_status(self, filepath):
         """Update the file status display"""
         try:
-            # Handle both string and tuple inputs (just in case)
             if isinstance(filepath, (list, tuple)):
                 filepath = filepath[0]
             
             base = os.path.basename(filepath)
-            self.file_label.config(text=f"Loaded: {base}", fg="green")
+            self.file_label.config(text=f"Selected: {base}", fg="green")
             
-            # Enable next button now that file is loaded
+            # Enable next button now that file is selected
             self.next_button.config(state="normal")
-            print(f"Next button enabled for file: {base}")  # Debug print
+            print(f"Next button enabled for file: {base}")
             
         except Exception as e:
             print(f"Error updating file status: {e}")
@@ -331,7 +179,7 @@ class HomePage(tk.Frame):
         """Clear the file status (if file loading fails)"""
         self.file_label.config(text="No file loaded", fg="gray")
         self.next_button.config(state="disabled")
-        print("File status cleared, next button disabled")  # Debug print
+        print("File status cleared, next button disabled")
     
     # Image display methods
     def display_image(self, path):
