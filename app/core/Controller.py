@@ -55,21 +55,25 @@ class Controller:
         if page_name == "HomePage":
             return True
             
-        # Preprocessing page requires a loaded file - CHECK MODEL STATE
+        # Preprocessing page requires a file to be selected (not necessarily loaded yet)
         if page_name == "PreprocessingPage":
-            if not self.model.file_loaded:  # Use model's state, not controller's
+            # Check if file is selected OR loaded
+            file_selected = hasattr(self.model, 'selected_file_path') and self.model.selected_file_path
+            file_loaded = self.model.file_loaded
+            
+            if not (file_selected or file_loaded):
                 messagebox.showwarning(
                     "File Required", 
-                    "Please load a data file before accessing the preprocessing page."
+                    "Please select a data file on the Home page before accessing preprocessing."
                 )
                 return False
                 
-        # Processing page requires file loaded and preprocessed - CHECK MODEL STATE
+        # Processing page requires file to be actually loaded AND preprocessed
         if page_name == "ProcessingPage":
             if not self.model.file_loaded:  # Use model's state
                 messagebox.showwarning(
                     "File Required", 
-                    "Please load a data file before accessing the processing page."
+                    "Please load a data stream before accessing the processing page."
                 )
                 return False
             if not self.model.preprocessed:  # Use model's state
@@ -81,7 +85,16 @@ class Controller:
                 
         return True
     
-    # Add method to be called by home page after successful file loading
+    # Add method to be called by home page after file selection
+    def on_file_selected(self, file_path):
+        """Called by home page when a file is selected (but not yet loaded)"""
+        print(f"Controller notified: file selected - {file_path}")
+        
+        # Update preprocessing page with the selected file
+        preprocessing_page = self.app.frames.get("PreprocessingPage")
+        if preprocessing_page:
+            preprocessing_page.update_from_file_selection(file_path)
+    
     def on_file_loaded(self, file_path):
         """Called by views when a file is successfully loaded"""
         print(f"Controller notified: file loaded - {file_path}")
