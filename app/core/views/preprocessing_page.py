@@ -103,7 +103,7 @@ class PreprocessingPage(tk.Frame):
         self.preview_label.pack()
     
     def setup_processing_options(self):
-        """Setup processing method dropdowns"""
+        """Setup processing method dropdowns and filter parameters"""
         
         options_frame = tk.LabelFrame(self, text="Processing Options", padx=10, pady=10)
         options_frame.pack(fill="x", padx=20, pady=10)
@@ -129,6 +129,62 @@ class PreprocessingPage(tk.Frame):
             state="readonly"
         )
         clean_dropdown.grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=(10, 0))
+        
+        # Bandpass Filter Parameters
+        filter_separator = ttk.Separator(options_frame, orient='horizontal')
+        filter_separator.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(15, 10))
+        
+        filter_title = tk.Label(options_frame, text="Bandpass Filter Parameters", font=("Arial", 10, "bold"))
+        filter_title.grid(row=3, column=0, columnspan=2, pady=(0, 10))
+        
+        # Low frequency cutoff
+        tk.Label(options_frame, text="Low Frequency (Hz):").grid(row=4, column=0, sticky="w")
+        self.low_freq_var = tk.DoubleVar(value=0.1)  # Default for respiratory signals
+        self.low_freq_entry = tk.Entry(options_frame, textvariable=self.low_freq_var, width=15)
+        self.low_freq_entry.grid(row=4, column=1, sticky="w", padx=(10, 0))
+        
+        # High frequency cutoff
+        tk.Label(options_frame, text="High Frequency (Hz):").grid(row=5, column=0, sticky="w", pady=(5, 0))
+        self.high_freq_var = tk.DoubleVar(value=2.0)  # Default for respiratory signals
+        self.high_freq_entry = tk.Entry(options_frame, textvariable=self.high_freq_var, width=15)
+        self.high_freq_entry.grid(row=5, column=1, sticky="w", padx=(10, 0), pady=(5, 0))
+        
+        # Preset buttons for common respiratory frequency ranges
+        preset_frame = tk.Frame(options_frame)
+        preset_frame.grid(row=6, column=0, columnspan=2, pady=(10, 0), sticky="w")
+        
+        tk.Label(preset_frame, text="Presets:", font=("Arial", 9)).pack(side="left")
+        
+        def set_human_adult():
+            self.low_freq_var.set(0.1)
+            self.high_freq_var.set(0.4)  # 6-24 breaths/min
+        
+        def set_human_infant():
+            self.low_freq_var.set(0.2)
+            self.high_freq_var.set(1.0)  # 12-60 breaths/min
+        
+        def set_mouse():
+            self.low_freq_var.set(0.5)
+            self.high_freq_var.set(5.0)  # 30-300 breaths/min
+        
+        def set_rat():
+            self.low_freq_var.set(0.3)
+            self.high_freq_var.set(3.0)  # 18-180 breaths/min
+        
+        tk.Button(preset_frame, text="Human Adult", command=set_human_adult, 
+                 font=("Arial", 8)).pack(side="left", padx=(5, 2))
+        tk.Button(preset_frame, text="Human Infant", command=set_human_infant,
+                 font=("Arial", 8)).pack(side="left", padx=2)
+        tk.Button(preset_frame, text="Mouse", command=set_mouse,
+                 font=("Arial", 8)).pack(side="left", padx=2)
+        tk.Button(preset_frame, text="Rat", command=set_rat,
+                 font=("Arial", 8)).pack(side="left", padx=2)
+        
+        # Validation note
+        validation_note = tk.Label(options_frame, 
+                                  text="Note: High freq should be < Nyquist frequency (sampling_rate/2)",
+                                  font=("Arial", 8), fg="gray")
+        validation_note.grid(row=7, column=0, columnspan=2, pady=(5, 0), sticky="w")
         
         options_frame.columnconfigure(1, weight=1)
     
@@ -513,6 +569,15 @@ class PreprocessingPage(tk.Frame):
             self.update_status("Error loading stream", "red")
             messagebox.showerror("Error", f"Error loading stream: {str(e)}")
     
+    def show_error(self, message):
+        """Display error message"""
+        messagebox.showerror("Preprocessing Error", message)
+        self.update_status("Error occurred during preprocessing", "red")
+    
+    def show_success(self, message):
+        """Display success message"""
+        messagebox.showinfo("Success", message)
+    
     # Methods called by controller/other components
     def update_from_file_selection(self, file_path):
         """Update UI when a file is selected from home page"""
@@ -571,18 +636,123 @@ class PreprocessingPage(tk.Frame):
     
     def get_current_settings(self):
         """Get current UI settings for preprocessing"""
-        return {
+        settings = {
             'file': getattr(self.controller.model, 'selected_file_path', 'No file'),
             'stream_index': self.selected_stream_idx,
             'peak_extraction': self.peak_var.get(),
-            'cleaning_method': self.clean_var.get()
+            'cleaning_method': self.clean_var.get(),
+            'low_freq': self.low_freq_var.get(),
+            'high_freq': self.high_freq_var.get()
         }
+        
+        # Validate frequency settings
+        validation_errors = self._validate_filter_settings(settings)
+        if validation_errors:
+            raise ValueError("Filter validation failed:\n" + "\n".join(validation_errors))
+        
+        return settings
     
-    def show_error(self, message):
-        """Display error message"""
-        messagebox.showerror("Preprocessing Error", message)
-        self.update_status("Error occurred during preprocessing", "red")
+    def _validate_filter_settings(self, settings):
+        """Validate filter frequency settings"""
+        errors = []
+        
+        low_freq = settings['low_freq']
+        high_freq = settings['high_freq']
+        
+        # Basic validation
+        if low_freq <= 0:
+            errors.append("Low frequency must be greater than 0")
+        
+        if high_freq <= low_freq:
+            errors.append("High frequency must be greater than low frequency")
+        
+        # Check against Nyquist frequency if we have sampling rate info
+        if hasattr(self.controller.model, 'sampling_rate') and self.controller.model.sampling_rate:
+            # Get sampling rate for the loaded file
+            file_path = getattr(self.controller.model, 'selected_file_path', None)
+            if file_path and file_path in self.controller.model.sampling_rate:
+                sr = self.controller.model.sampling_rate[file_path]
+                nyquist = sr / 2
+                
+                if high_freq >= nyquist:
+                    errors.append(f"High frequency ({high_freq} Hz) must be less than Nyquist frequency ({nyquist:.1f} Hz)")
+                
+                if high_freq > nyquist * 0.8:
+                    errors.append(f"Warning: High frequency ({high_freq} Hz) is very close to Nyquist limit ({nyquist:.1f} Hz)")
+        
+        # Physiological validation warnings
+        if low_freq < 0.05:
+            errors.append(f"Warning: Low frequency ({low_freq} Hz) is very low for respiratory signals")
+        
+        if high_freq > 10:
+            errors.append(f"Warning: High frequency ({high_freq} Hz) is high even for small animal respiratory signals")
+        
+        return errors
     
-    def show_success(self, message):
-        """Display success message"""
-        messagebox.showinfo("Success", message)
+    def update_params_display(self, params):
+        """Update the parameters display area"""
+        self.params_display.config(state="normal")
+        self.params_display.delete(1.0, tk.END)
+        
+        if params:
+            params_text = "Current Parameters:\n"
+            for key, value in params.items():
+                params_text += f"  {key}: {value}\n"
+            self.params_display.insert(1.0, params_text)
+        else:
+            params_text = "Default Parameters:\n"
+            params_text += f"  peak_extraction: {self.peak_var.get()}\n"
+            params_text += f"  cleaning_method: {self.clean_var.get()}\n"
+            params_text += f"  low_freq: {self.low_freq_var.get()} Hz\n"
+            params_text += f"  high_freq: {self.high_freq_var.get()} Hz\n"
+            self.params_display.insert(1.0, params_text)
+        
+        self.params_display.config(state="disabled")
+    
+    def load_selected_stream(self):
+        """Load the selected stream into the model"""
+        if self.selected_stream_idx is None or not hasattr(self.controller.model, 'selected_file_path'):
+            messagebox.showerror("Error", "No stream selected")
+            return
+        
+        file_path = self.controller.model.selected_file_path
+        
+        try:
+            # Validate filter settings before loading
+            current_settings = self.get_current_settings()
+            
+            # Update model parameters with current filter settings
+            self.controller.model.set_parameter('low_freq', self.low_freq_var.get())
+            self.controller.model.set_parameter('high_freq', self.high_freq_var.get())
+            
+            # Load the selected stream
+            success = self.controller.model.load_file(file_path, stream_indices={file_path: self.selected_stream_idx})
+            
+            if success:
+                stream_name = self.available_streams[self.selected_stream_idx].split(": ")[1]
+                self.update_status(f"Stream loaded successfully: {stream_name}", "green")
+                self.preprocess_btn.config(state="normal")
+                
+                # Update parameters display with current settings
+                self.update_params_display(None)  # Will show default/current parameters
+                
+                messagebox.showinfo("Success", 
+                    f"Stream {self.selected_stream_idx} loaded successfully!\n\n"
+                    f"Filter settings:\n"
+                    f"Low freq: {self.low_freq_var.get()} Hz\n"
+                    f"High freq: {self.high_freq_var.get()} Hz")
+                
+                # Notify controller
+                if hasattr(self.controller, 'on_file_loaded'):
+                    self.controller.on_file_loaded(file_path)
+            else:
+                self.update_status("Failed to load stream", "red")
+                messagebox.showerror("Error", "Failed to load the selected stream")
+        
+        except ValueError as e:
+            # Validation error
+            self.update_status("Invalid filter parameters", "red")
+            messagebox.showerror("Parameter Error", str(e))
+        except Exception as e:
+            self.update_status("Error loading stream", "red")
+            messagebox.showerror("Error", f"Error loading stream: {str(e)}")
