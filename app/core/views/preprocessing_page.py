@@ -243,9 +243,9 @@ class PreprocessingPage(tk.Frame):
         self._show_stream_popup(file_path, streams, self.selected_stream_idx)
     
     def _show_stream_popup(self, file_path, streams, stream_idx):
-        """Show popup window with stream preview"""
+        """Show popup window with advanced stream preview and controls"""
         import matplotlib.pyplot as plt
-        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
         import numpy as np
         
         name, series, sr = streams[stream_idx]
@@ -253,57 +253,236 @@ class PreprocessingPage(tk.Frame):
         # Create popup window
         popup = tk.Toplevel(self)
         popup.title(f"Stream Preview: {name}")
-        popup.geometry("800x600")
+        popup.geometry("1000x800")
         popup.transient(self)
         popup.grab_set()
         
         # Center the popup
         popup.update_idletasks()
-        x = (popup.winfo_screenwidth() // 2) - 400
-        y = (popup.winfo_screenheight() // 2) - 300
-        popup.geometry(f"800x600+{x}+{y}")
+        x = (popup.winfo_screenwidth() // 2) - 500
+        y = (popup.winfo_screenheight() // 2) - 400
+        popup.geometry(f"1000x800+{x}+{y}")
+        
+        # Full dataset info
+        total_duration = len(series) / sr
         
         # Title
         title_label = tk.Label(popup, text=f"Stream {stream_idx}: {name} (SR: {sr:.1f} Hz)", 
                               font=("Arial", 14, "bold"))
-        title_label.pack(pady=10)
+        title_label.pack(pady=5)
+        
+        info_label = tk.Label(popup, text=f"Total Duration: {total_duration:.2f} seconds ({len(series)} samples)", 
+                             font=("Arial", 10), fg="gray")
+        info_label.pack()
+        
+        # Control frame
+        control_frame = tk.Frame(popup)
+        control_frame.pack(fill="x", padx=10, pady=5)
+        
+        # Time range controls
+        time_frame = tk.LabelFrame(control_frame, text="Time Range (X-Axis)", padx=5, pady=5)
+        time_frame.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        
+        tk.Label(time_frame, text="Start (s):").grid(row=0, column=0, padx=2)
+        start_time_var = tk.DoubleVar(value=0.0)
+        start_time_entry = tk.Entry(time_frame, textvariable=start_time_var, width=8)
+        start_time_entry.grid(row=0, column=1, padx=2)
+        
+        tk.Label(time_frame, text="End (s):").grid(row=0, column=2, padx=2)
+        end_time_var = tk.DoubleVar(value=min(60.0, total_duration))
+        end_time_entry = tk.Entry(time_frame, textvariable=end_time_var, width=8)
+        end_time_entry.grid(row=0, column=3, padx=2)
+        
+        # Quick time buttons
+        quick_time_frame = tk.Frame(time_frame)
+        quick_time_frame.grid(row=1, column=0, columnspan=4, pady=5)
+        
+        def set_time_range(start, duration):
+            end = min(start + duration, total_duration)
+            start_time_var.set(start)
+            end_time_var.set(end)
+            update_plot()
+        
+        tk.Button(quick_time_frame, text="First 30s", command=lambda: set_time_range(0, 30)).pack(side="left", padx=2)
+        tk.Button(quick_time_frame, text="First 60s", command=lambda: set_time_range(0, 60)).pack(side="left", padx=2)
+        tk.Button(quick_time_frame, text="First 300s", command=lambda: set_time_range(0, 300)).pack(side="left", padx=2)
+        tk.Button(quick_time_frame, text="Full Signal", command=lambda: set_time_range(0, total_duration)).pack(side="left", padx=2)
+        
+        # Amplitude range controls
+        amp_frame = tk.LabelFrame(control_frame, text="Amplitude Range (Y-Axis)", padx=5, pady=5)
+        amp_frame.pack(side="right", fill="x", expand=True, padx=(5, 0))
+        
+        tk.Label(amp_frame, text="Min:").grid(row=0, column=0, padx=2)
+        amp_min_var = tk.DoubleVar()
+        amp_min_entry = tk.Entry(amp_frame, textvariable=amp_min_var, width=10)
+        amp_min_entry.grid(row=0, column=1, padx=2)
+        
+        tk.Label(amp_frame, text="Max:").grid(row=0, column=2, padx=2)
+        amp_max_var = tk.DoubleVar()
+        amp_max_entry = tk.Entry(amp_frame, textvariable=amp_max_var, width=10)
+        amp_max_entry.grid(row=0, column=3, padx=2)
+        
+        # Auto amplitude button
+        def auto_amplitude():
+            start_time = start_time_var.get()
+            end_time = end_time_var.get()
+            start_idx = int(start_time * sr)
+            end_idx = int(end_time * sr)
+            end_idx = min(end_idx, len(series))
+            
+            if start_idx < end_idx:
+                data_segment = series.iloc[start_idx:end_idx]
+                data_min, data_max = data_segment.min(), data_segment.max()
+                y_range = data_max - data_min
+                padding = y_range * 0.05
+                amp_min_var.set(data_min - padding)
+                amp_max_var.set(data_max + padding)
+                update_plot()
+        
+        tk.Button(amp_frame, text="Auto Range", command=auto_amplitude).grid(row=1, column=0, columnspan=4, pady=5)
+        
+        # Update button
+        update_btn = tk.Button(control_frame, text="Update Plot", command=lambda: update_plot(), 
+                              bg="lightblue", font=("Arial", 10, "bold"))
+        update_btn.pack(pady=10)
+        
+        # Navigation controls
+        nav_frame = tk.Frame(popup)
+        nav_frame.pack(fill="x", padx=10, pady=5)
+        
+        # Scrolling controls
+        scroll_frame = tk.LabelFrame(nav_frame, text="Navigation", padx=5, pady=5)
+        scroll_frame.pack(fill="x")
+        
+        def scroll_left():
+            current_start = start_time_var.get()
+            current_end = end_time_var.get()
+            duration = current_end - current_start
+            shift = duration * 0.1  # Scroll by 10% of current window
+            new_start = max(0, current_start - shift)
+            new_end = new_start + duration
+            start_time_var.set(new_start)
+            end_time_var.set(new_end)
+            update_plot()
+        
+        def scroll_right():
+            current_start = start_time_var.get()
+            current_end = end_time_var.get()
+            duration = current_end - current_start
+            shift = duration * 0.1
+            new_end = min(total_duration, current_end + shift)
+            new_start = new_end - duration
+            start_time_var.set(new_start)
+            end_time_var.set(new_end)
+            update_plot()
+        
+        def zoom_in_x():
+            current_start = start_time_var.get()
+            current_end = end_time_var.get()
+            center = (current_start + current_end) / 2
+            duration = (current_end - current_start) * 0.7  # Zoom to 70% of current range
+            new_start = max(0, center - duration/2)
+            new_end = min(total_duration, center + duration/2)
+            start_time_var.set(new_start)
+            end_time_var.set(new_end)
+            update_plot()
+        
+        def zoom_out_x():
+            current_start = start_time_var.get()
+            current_end = end_time_var.get()
+            center = (current_start + current_end) / 2
+            duration = (current_end - current_start) * 1.4  # Zoom to 140% of current range
+            new_start = max(0, center - duration/2)
+            new_end = min(total_duration, center + duration/2)
+            start_time_var.set(new_start)
+            end_time_var.set(new_end)
+            update_plot()
+        
+        # Navigation buttons
+        btn_frame = tk.Frame(scroll_frame)
+        btn_frame.pack()
+        
+        tk.Button(btn_frame, text="◄◄", command=scroll_left, width=4).pack(side="left", padx=2)
+        tk.Button(btn_frame, text="Zoom In X", command=zoom_in_x).pack(side="left", padx=2)
+        tk.Button(btn_frame, text="Zoom Out X", command=zoom_out_x).pack(side="left", padx=2)
+        tk.Button(btn_frame, text="►►", command=scroll_right, width=4).pack(side="left", padx=2)
         
         # Create matplotlib figure
-        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+        fig, ax = plt.subplots(1, 1, figsize=(12, 6))
         
-        # Plot preview (first 60 seconds or all data if shorter)
-        max_samples = int(60 * sr)
-        preview_data = series.iloc[:max_samples] if len(series) > max_samples else series
-        time_axis = np.arange(len(preview_data)) / sr
+        def update_plot():
+            """Update the plot with current settings"""
+            try:
+                start_time = start_time_var.get()
+                end_time = end_time_var.get()
+                
+                # Validate time range
+                start_time = max(0, start_time)
+                end_time = min(total_duration, end_time)
+                if end_time <= start_time:
+                    end_time = start_time + 1  # Minimum 1 second window
+                
+                # Calculate sample indices
+                start_idx = int(start_time * sr)
+                end_idx = int(end_time * sr)
+                end_idx = min(end_idx, len(series))
+                
+                if start_idx >= end_idx:
+                    return
+                
+                # Extract data segment
+                data_segment = series.iloc[start_idx:end_idx]
+                time_axis = np.arange(len(data_segment)) / sr + start_time
+                
+                # Clear and plot
+                ax.clear()
+                ax.plot(time_axis, data_segment, linewidth=0.8, color='blue')
+                ax.set_title(f"{name} - {end_time-start_time:.2f}s window ({len(data_segment)} samples)", 
+                           fontsize=12, pad=15)
+                ax.set_xlabel("Time (s)")
+                ax.set_ylabel("Amplitude")
+                ax.grid(True, alpha=0.3)
+                
+                # Set axis limits
+                ax.set_xlim(start_time, end_time)
+                
+                # Set Y limits if specified
+                try:
+                    y_min = amp_min_var.get()
+                    y_max = amp_max_var.get()
+                    if y_max > y_min:
+                        ax.set_ylim(y_min, y_max)
+                    else:
+                        # Auto Y range
+                        auto_amplitude()
+                except:
+                    # Auto Y range if entries are invalid
+                    auto_amplitude()
+                
+                canvas.draw()
+                
+            except Exception as e:
+                print(f"Error updating plot: {e}")
         
-        ax.plot(time_axis, preview_data, linewidth=0.8, color='blue')
-        ax.set_title(f"First {len(preview_data)/sr:.1f} seconds of data", fontsize=12, pad=15)
-        ax.set_xlabel("Time (s)")
-        ax.set_ylabel("Amplitude")
-        ax.grid(True, alpha=0.3)
-        
-        # Add padding
-        y_range = preview_data.max() - preview_data.min()
-        if y_range > 0:
-            y_pad = y_range * 0.05
-            ax.set_ylim(preview_data.min() - y_pad, preview_data.max() + y_pad)
-        
-        plt.tight_layout()
-        
-        # Embed in popup
+        # Embed matplotlib
         canvas = FigureCanvasTkAgg(fig, master=popup)
         canvas.draw()
         canvas_widget = canvas.get_tk_widget()
-        canvas_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        canvas_widget.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        # Add navigation toolbar
-        toolbar = NavigationToolbar2Tk(canvas, popup)
-        toolbar.update()
-        toolbar.pack(side=tk.BOTTOM, fill=tk.X)
+        # Instructions
+        instructions = tk.Label(popup, 
+                               text="Use controls above to zoom in on specific time ranges and amplitude levels. Perfect for examining breathing patterns!",
+                               font=("Arial", 9), fg="blue", wraplength=800)
+        instructions.pack(pady=5)
         
         # Close button
         close_btn = tk.Button(popup, text="Close", command=popup.destroy, font=("Arial", 12))
         close_btn.pack(pady=10)
+        
+        # Initialize plot
+        auto_amplitude()
+        update_plot()
     
     def load_selected_stream(self):
         """Load the selected stream into the model"""
