@@ -30,6 +30,10 @@ class Model:
         }
         self.selected_features = []
         
+        # Preprocessing-specific attributes
+        self.selected_file_path = None
+        self.selected_stream_index = None
+        
         # state variables
         self.file_loaded = False
         self.preprocessed = False
@@ -95,31 +99,82 @@ class Model:
             for file_path, signal in self.raw_data.items():
                 fs = self.sampling_rate[file_path]
 
-                # Apply your processing
-                from ..utils.processing import process_signal, get_respiratory_features
-                processed, quality = process_signal(
-                    {file_path: signal}, 
-                    {file_path: fs}, 
-                    low_freq=self.parameters.get('low_freq', 0.1),
-                    high_freq=self.parameters.get('high_freq', 0.4)
+                # Use your actual processing functions
+                from ..utils.processing import process_full_pipeline
+                
+                # Prepare parameters for your processing pipeline
+                processing_params = {
+                    'low_freq': self.parameters.get('low_freq', 0.1),
+                    'high_freq': self.parameters.get('high_freq', 0.4),
+                    'cleaning_method': self.parameters.get('cleaning_method', 'neurokit'),
+                    'peak_extraction_method': self.parameters.get('peak_extraction_method', 'neurokit')
+                }
+                
+                # Run your processing pipeline
+                processed_df, quality = process_full_pipeline(
+                    signal, 
+                    fs, 
+                    processing_params
                 )
-                self.processed_data[file_path] = processed[file_path]
-                self.quality[file_path] = quality[file_path]
-
-                # Extract features
-                features = get_respiratory_features(
-                    {file_path: self.processed_data[file_path]}, 
-                    {file_path: fs}
-                )
-                self.features[file_path] = features[file_path]
+                
+                self.processed_data[file_path] = processed_df
+                self.quality[file_path] = quality
+                
+                # Extract basic features from processed data
+                self.features[file_path] = self._extract_basic_features(processed_df, fs)
 
             self.preprocessed = True
+            print("Preprocessing completed successfully")
             return True
 
         except Exception as e:
             print(f"Error preprocessing data: {e}")
+            import traceback
+            traceback.print_exc()
             self.preprocessed = False
             return False
+    
+    def _extract_basic_features(self, processed_df, sampling_rate):
+        """Extract basic respiratory features from processed data"""
+        try:
+            features = {}
+            
+            # Get peak and trough indices
+            peak_indices = processed_df[processed_df['RSP_Peaks'] == 1].index.tolist()
+            trough_indices = processed_df[processed_df['RSP_Troughs'] == -1].index.tolist()
+            
+            # Calculate basic metrics
+            if len(peak_indices) > 1:
+                # Breathing rate (breaths per minute)
+                peak_intervals = [peak_indices[i+1] - peak_indices[i] for i in range(len(peak_indices)-1)]
+                avg_interval_samples = sum(peak_intervals) / len(peak_intervals)
+                avg_interval_seconds = avg_interval_samples / sampling_rate
+                breathing_rate = 60.0 / avg_interval_seconds  # breaths per minute
+                
+                features['breathing_rate_bpm'] = breathing_rate
+                features['num_breaths'] = len(peak_indices)
+                features['avg_breath_interval_s'] = avg_interval_seconds
+            else:
+                features['breathing_rate_bpm'] = 0
+                features['num_breaths'] = len(peak_indices)
+                features['avg_breath_interval_s'] = 0
+            
+            # Signal quality metrics
+            if 'RSP_Quality' in processed_df.columns:
+                features['avg_quality'] = processed_df['RSP_Quality'].mean()
+                features['quality_std'] = processed_df['RSP_Quality'].std()
+            
+            # Signal amplitude metrics
+            if 'RSP_Clean' in processed_df.columns:
+                features['signal_mean'] = processed_df['RSP_Clean'].mean()
+                features['signal_std'] = processed_df['RSP_Clean'].std()
+                features['signal_range'] = processed_df['RSP_Clean'].max() - processed_df['RSP_Clean'].min()
+            
+            return features
+            
+        except Exception as e:
+            print(f"Error extracting features: {e}")
+            return {'error': str(e)}
 
     def extract_features(self):
         """Extracts key features from the processed signal."""

@@ -18,8 +18,213 @@ class Controller:
     def __init__(self, app, model):
         self.app = app
         self.model = model
-        # Remove duplicate state - use model as single source of truth
+        self.preprocessing_model = None  # Will be initialized when needed
         self.current_frame = "HomePage"
+        
+    # Initialize preprocessing model when needed
+    def _get_preprocessing_model(self):
+        if self.preprocessing_model is None:
+            try:
+                from ..preprocessing_model import PreprocessingModel
+                self.preprocessing_model = PreprocessingModel(self.model)
+                print("PreprocessingModel imported and initialized successfully")
+            except ImportError as e:
+                print(f"ERROR: Failed to import PreprocessingModel: {e}")
+                # Fallback - you might need to adjust the import path
+                try:
+                    from .preprocessing_model import PreprocessingModel
+                    self.preprocessing_model = PreprocessingModel(self.model)
+                    print("PreprocessingModel imported with alternative path")
+                except ImportError as e2:
+                    print(f"ERROR: Alternative import also failed: {e2}")
+                    return None
+        return self.preprocessing_model
+    
+    def show_frame(self, page_name):
+        """Navigate to a specific frame with validation"""
+        if not self._can_navigate_to(page_name):
+            return False
+            
+        self.current_frame = page_name
+        frame = self.app.frames[page_name]
+        frame.tkraise()
+        
+        # Update window title
+        page_titles = {
+            "HomePage": "PlethPy - Home",
+            "PreprocessingPage": "PlethPy - Preprocessing", 
+            "ProcessingPage": "PlethPy - Processing"
+        }
+        self.app.title(page_titles.get(page_name, "PlethPy"))
+        
+        return True
+    
+    def _can_navigate_to(self, page_name):
+        """Check if navigation to the specified frame is allowed"""
+        if page_name == "HomePage":
+            return True
+            
+        if page_name == "PreprocessingPage":
+            # Check if file is selected OR loaded
+            file_selected = hasattr(self.model, 'selected_file_path') and self.model.selected_file_path
+            file_loaded = self.model.file_loaded
+            
+            if not (file_selected or file_loaded):
+                messagebox.showwarning(
+                    "File Required", 
+                    "Please select a data file on the Home page before accessing preprocessing."
+                )
+                return False
+                
+        if page_name == "ProcessingPage":
+            if not self.model.file_loaded:
+                messagebox.showwarning(
+                    "File Required", 
+                    "Please load a data stream before accessing the processing page."
+                )
+                return False
+            if not self.model.preprocessed:
+                messagebox.showwarning(
+                    "Preprocessing Required", 
+                    "Please preprocess your data before accessing the processing page."
+                )
+                return False
+                
+        return True
+    
+    # File selection workflow
+    def on_file_selected(self, file_path):
+        print("DEBUG: NEW CONTROLLER CODE RUNNING")
+        """Called by home page when a file is selected"""
+        print(f"Controller: File selected - {file_path}")
+        
+        # Initialize preprocessing model and set file
+        prep_model = self._get_preprocessing_model()
+        success = prep_model.set_selected_file(file_path)
+        
+        if success:
+            # Update preprocessing page
+            preprocessing_page = self.app.frames.get("PreprocessingPage")
+            if preprocessing_page:
+                preprocessing_page.update_file_selection(file_path)
+                stream_options = prep_model.get_stream_options()
+                preprocessing_page.update_stream_options(stream_options)
+        else:
+            messagebox.showerror("Error", "No streams found in the selected file")
+    
+    # Stream selection workflow  
+    def select_stream(self, stream_index):
+        """Handle stream selection from preprocessing page"""
+        prep_model = self._get_preprocessing_model()
+        success = prep_model.set_selected_stream(stream_index)
+        
+        if not success:
+            messagebox.showerror("Error", "Invalid stream selection")
+    
+    def preview_selected_stream(self):
+        """Show preview of selected stream"""
+        prep_model = self._get_preprocessing_model()
+        stream_info = prep_model.get_selected_stream_info()
+        
+        if stream_info:
+            from .stream_preview_utils import show_stream_preview
+            preprocessing_page = self.app.frames.get("PreprocessingPage")
+            show_stream_preview(preprocessing_page, stream_info, prep_model.selected_stream_index)
+        else:
+            messagebox.showerror("Error", "No stream selected for preview")
+    
+    def load_selected_stream(self, filter_params, processing_params):
+        """Load the selected stream with given parameters"""
+        prep_model = self._get_preprocessing_model()
+        
+        # Set parameters
+        prep_model.set_processing_params(
+            processing_params['peak_extraction'],
+            processing_params['cleaning_method']
+        )
+        
+        # Validate and set filter parameters
+        success, errors = prep_model.set_filter_params(
+            filter_params['low_freq'],
+            filter_params['high_freq']
+        )
+        
+        if not success:
+            error_msg = "Filter validation failed:\n" + "\n".join(errors)
+            preprocessing_page = self.app.frames.get("PreprocessingPage")
+            if preprocessing_page:
+                preprocessing_page.show_error(error_msg)
+            return False
+        
+        # Load the stream
+        success, message = prep_model.load_selected_stream()
+        
+        preprocessing_page = self.app.frames.get("PreprocessingPage")
+        if preprocessing_page:
+            if success:
+                preprocessing_page.enable_preprocessing()
+                preprocessing_page.update_params_display(prep_model.get_current_settings())
+                preprocessing_page.show_success(f"Stream loaded successfully!\n\n{message}")
+            else:
+                preprocessing_page.show_error(message)
+        
+        return success
+    
+    # Preprocessing workflow
+    def run_preprocessing(self):
+        """Run the preprocessing pipeline"""
+        prep_model = self._get_preprocessing_model()
+        
+        preprocessing_page = self.app.frames.get("PreprocessingPage")
+        if preprocessing_page:
+            preprocessing_page.update_status("Running preprocessing...", "orange")
+        
+        success, message = prep_model.run_preprocessing()
+        
+        if preprocessing_page:
+            if success:
+                preprocessing_page.enable_next_button()
+                preprocessing_page.show_success(message)
+            else:
+                preprocessing_page.show_error(message)
+        
+        return success
+    
+    # Parameter management
+    def save_preprocessing_params(self):
+        """Save current preprocessing parameters"""
+        prep_model = self._get_preprocessing_model()
+        settings = prep_model.get_current_settings()
+        
+        success = self.model.save_parameters(settings)
+        
+        preprocessing_page = self.app.frames.get("PreprocessingPage")
+        if preprocessing_page:
+            if success:
+                preprocessing_page.show_success("Parameters saved successfully!")
+            else:
+                preprocessing_page.show_error("Failed to save parameters")
+        
+        return success
+    
+    def load_preprocessing_params(self):
+        """Load preprocessing parameters"""
+        success = self.model.load_parameters()
+        
+        preprocessing_page = self.app.frames.get("PreprocessingPage")
+        if preprocessing_page:
+            if success:
+                params = self.model.get_current_params()
+                preprocessing_page.update_params_display(params)
+                preprocessing_page.show_success("Parameters loaded successfully!")
+            else:
+                preprocessing_page.show_error("Failed to load parameters")
+        
+        return success
+    
+    def get_model(self):
+        """Get the main model instance"""
+        return self.model
         
     def show_frame(self, page_name):
         """
