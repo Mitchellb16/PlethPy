@@ -72,9 +72,9 @@ class PreprocessingPage(tk.Frame):
         
         # Peak Extraction
         tk.Label(options_frame, text="Peak Extraction:").grid(row=0, column=0, sticky="w")
-        self.peak_var = tk.StringVar(value="khodad2018")
+        self.peak_var = tk.StringVar(value="khodadad2018")  # Correct spelling
         peak_dropdown = ttk.Combobox(options_frame, textvariable=self.peak_var,
-                                    values=["khodad2018", "biosppy", "scipy"], state="readonly")
+                                    values=["khodadad2018", "biosppy", "scipy"])
         peak_dropdown.grid(row=0, column=1, sticky="ew", padx=(10, 0))
         
         # Cleaning Method
