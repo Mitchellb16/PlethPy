@@ -2,7 +2,9 @@ import tkinter as tk
 from tkinter import filedialog
 from PIL import Image, ImageTk
 import random
+import numpy as np
 import os
+from app import paths 
 
 class HomePage(tk.Frame):
     def __init__(self, parent, controller):
@@ -194,29 +196,40 @@ class HomePage(tk.Frame):
             self.image_label.config(text=f"Error loading image:\n{e}", fg="red")
     
     def display_random_image(self):
-        """Display a random image from resources"""
-        # Resources folder relative to repo root
-        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        resources_dir = os.path.join(repo_root, "app", "resources")
+        # Easter egg for frequent users    
+        resources_dir = paths.RESOURCES_DIR
         
-        # Fallback if resources not found
-        if not os.path.exists(resources_dir):
-            resources_dir = os.path.join(repo_root, "resources")
+        available_images = [f for f in os.listdir(resources_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
         
-        turtwig_path = os.path.join(resources_dir, "Turtwig.jpg")
-        logo_path = os.path.join(resources_dir, "NGSC_Logo_white_SBUred2.png")
+        # get random number to determine image
+        rand_num = np.random.randint(0,1000)
+        if rand_num > 950:
+            image_name = random.choice(available_images)
+            
+        else: 
+            image_name = os.path.join(resources_dir, 'NGSC_Logo_white_SBUred2.png')
+        image_path = os.path.join(resources_dir, image_name)
+        self.display_image(image_path)
         
-        # Check which images exist and choose randomly
-        available_images = []
-        if os.path.exists(turtwig_path):
-            available_images.append(turtwig_path)
-        if os.path.exists(logo_path):
-            available_images.append(logo_path)
-        
-        if available_images:
-            default_path = random.choice(available_images)
-            self.display_image(default_path)
-        else:
-            # Fallback text if no images found
-            self.image_label.config(text="PlethPy\nRespiratory Signal Analysis", 
-                                  font=("Arial", 20, "bold"))
+# =============================================================================
+# Test Script to run this page independently from the project root
+# =============================================================================
+if __name__ == "__main__":
+    
+    # 3. Now we can import using the 'app' package, just like main.py would
+    # Assuming Controller.py and Model.py are in app/core/
+    from app.core.Controller import Controller
+    from app.core.Model import Model
+    
+    # --- Initialize and run the Tkinter application ---
+    root = tk.Tk()
+    root.title("HomePage Test (Running from Root)")
+    root.geometry("600x500")
+
+    model = Model()
+    controller = Controller(app=root, model=model) 
+
+    home_page = HomePage(parent=root, controller=controller)
+    home_page.pack(fill="both", expand=True)
+
+    root.mainloop()
