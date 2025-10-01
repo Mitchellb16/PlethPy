@@ -24,47 +24,47 @@ def load_csv(file_path):
         print(f"Error loading CSV file: {e}")
         return None, None
     
-def load_smr(file_path):
+def load_smr(file_path, stream_index=0):
     """
-    Loads a .smr file using the neo library.
-
+    Loads a specific analog signal from a .smr file using the neo library.
+    
     Args:
         file_path (str): The path to the .smr or .smrx file.
-
+        stream_index (int): Index of the analog signal to load (default: 0)
+        
     Returns:
-        tuple: A tuple containing a pandas Series of the respiratory signal
-               and the sampling rate in Hertz (float). Returns (None, None)
-               if the file cannot be read or the signal cannot be found.
+        tuple: A tuple containing a pandas Series of the signal and the 
+               sampling rate in Hertz (float). Returns (None, None) if 
+               the file cannot be read or the signal cannot be found.
     """
-    try:
-        reader = neo.io.Spike2IO(filename=file_path)
-        block = reader.read_block(lazy=False, cascade=True)
-
-        # The neo library can read multiple signals from a file. We'll search
-        # for a respiratory signal based on common channel names.
-        resp_signal = None
-        for seg in block.segments:
-            for anasig in seg.analogsignals:
-                # Check for common respiratory signal names.
-                if 'RSP' in anasig.name.upper() or 'RESP' in anasig.name.upper():
-                    resp_signal = anasig
-                    break
-            if resp_signal:
-                break
-        
-        if resp_signal is None:
-            print("Warning: No respiratory signal found in the file.")
-            return None, None
-        
-        # Convert the neo AnalogSignal to a pandas Series for easy use.
-        signal_array = np.array(resp_signal)
-        respiratory_signal = pd.Series(signal_array.flatten())
-        
-        # Get the sampling rate. neo stores this with units.
-        sampling_rate = resp_signal.sampling_rate
-        
-        return respiratory_signal, sampling_rate
-        
-    except Exception as e:
-        print(f"Error loading SMR file: {e}")
+    reader = neo.io.Spike2IO(filename=file_path)
+    block = reader.read_block(lazy=False)
+    
+    if not block.segments:
+        print("Error: No segments found in file")
         return None, None
+    
+    seg = block.segments[0]
+    
+    if not seg.analogsignals:
+        print("Error: No analog signals found in file")
+        return None, None
+    
+    if stream_index >= len(seg.analogsignals):
+        print(f"Error: Stream index {stream_index} out of range (0-{len(seg.analogsignals)-1})")
+        return None, None
+        
+        # Get the specified analog signal
+        anasig = seg.analogsignals[stream_index]
+        
+        # Convert to pandas Series
+        signal_array = np.array(anasig)
+        signal = pd.Series(signal_array.flatten())
+        
+        # Get sampling rate
+        sampling_rate = float(anasig.sampling_rate)
+        
+        print(f"Loading SMR file: {file_path}, stream index: {stream_index}")
+        print(f"Loaded data shape: {signal.shape}")
+        
+        return signal, sampling_rate
