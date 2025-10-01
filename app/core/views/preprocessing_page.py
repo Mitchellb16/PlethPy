@@ -113,8 +113,6 @@ class PreprocessingPage(tk.Frame):
         tk.Label(preset_frame, text="Presets:", font=("Arial", 9)).pack(side="left")
         
         presets = [
-            ("Human Adult", 0.1, 0.4),
-            ("Human Infant", 0.2, 1.0),
             ("Mouse", 0.5, 5.0),
             ("Rat", 0.3, 3.0)
         ]
@@ -291,3 +289,25 @@ class PreprocessingPage(tk.Frame):
             'peak_extraction': self.peak_var.get(),
             'cleaning_method': self.clean_var.get()
         }
+    
+# =============================================================================
+# Test Script to run this page independently from the project root
+# =============================================================================
+if __name__ == "__main__":
+    from app.core.Controller import Controller
+    from app.core.Model import Model
+    
+    root = tk.Tk()
+    root.title("PreprocessingPage Test (Running from Root)")
+    root.geometry("800x700")
+    
+    model = Model()
+    controller = Controller(app=root, model=model)
+    
+    # Mock the frames dict so controller.show_frame works
+    root.frames = {"PreprocessingPage": None}
+    
+    preprocessing_page = PreprocessingPage(parent=root, controller=controller)
+    preprocessing_page.pack(fill="both", expand=True)
+    
+    root.mainloop()
