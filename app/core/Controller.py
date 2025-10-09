@@ -225,3 +225,89 @@ class Controller:
             processing_page.show_success(f"Would export to {filename}")
             return True
         return False
+    
+    def load_event_file(self):
+        """Handle loading event/block file from user"""
+        from tkinter import filedialog
+        
+        filename = filedialog.askopenfilename(
+            title="Select Time Block File",
+            filetypes=[
+                ("Excel files", "*.xlsx *.xls"),
+                ("All files", "*.*")
+            ]
+        )
+        
+        if not filename:
+            return False
+        
+        processing_page = self.app.frames.get("ProcessingPage")
+        
+        # Try to load the file
+        success = self.model.load_events(filename)
+        
+        if processing_page:
+            if success:
+                summary = self.model.get_event_summary()
+                processing_page.update_event_status(filename, summary)
+                processing_page.show_success(f"Loaded time blocks from:\n{filename}")
+            else:
+                processing_page.show_error("Failed to load event file")
+        
+        return success
+    
+    
+    def clear_events(self):
+        """Clear loaded events"""
+        self.model.clear_events()
+        
+        processing_page = self.app.frames.get("ProcessingPage")
+        if processing_page:
+            processing_page.clear_event_status()
+            processing_page.show_success("Time blocks cleared")
+    
+    
+    def analyze_blocks(self):
+        """
+        Analyze respiratory metrics for each time block.
+        Compares metrics across different conditions (Baseline, Stimulus, etc.)
+        """
+        processing_page = self.app.frames.get("ProcessingPage")
+        
+        if not self.model.get_events():
+            if processing_page:
+                processing_page.show_error("Please load a time block file first")
+            return False
+        
+        if processing_page:
+            processing_page.update_status("Analyzing blocks...", "orange")
+        
+        # MODEL DOES THE WORK
+        success = self.model.analyze_blocks()
+        
+        if processing_page:
+            if success:
+                # Get results from model
+                summary = self.model.get_block_summary()
+                block_analysis = self.model.get_block_analysis()
+                
+                # TELL VIEW TO UPDATE (pass data, don't do the updating)
+                processing_page.show_success(f"Block analysis complete!\n\n{summary}")
+                processing_page.display_block_comparison_plots(block_analysis)
+                processing_page.update_status("Block analysis complete - comparison plots generated", "green")
+                processing_page.enable_block_comparison()
+            else:
+                processing_page.show_error("Failed to analyze blocks")
+                processing_page.update_status("Block analysis failed", "red")
+        
+        return success
+    
+    
+    def get_events(self):
+        """Get current events from model"""
+        return self.model.get_events()
+    
+    
+    def get_block_analysis(self):
+        """Get block analysis results from model"""
+        return self.model.get_block_analysis()

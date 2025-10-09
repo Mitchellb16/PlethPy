@@ -10,13 +10,13 @@ class ProcessingPage(tk.Frame):
     def setup_ui(self):
         """Setup all UI elements for the processing page"""
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(2, weight=1)
         
         self.setup_header()
         self.setup_plot_options()
-        self.setup_plot_area()
-        self.setup_action_buttons()
-        self.setup_navigation()
+        self.setup_block_section()
+        self.setup_action_buttons()     
+        self.setup_navigation()         
+        self.setup_plot_area()          
     
     def setup_header(self):
         """Setup page header"""
@@ -55,6 +55,61 @@ class ProcessingPage(tk.Frame):
         
         checkbox_frame.columnconfigure(0, weight=1)
         checkbox_frame.columnconfigure(1, weight=1)
+    
+    def setup_block_section(self):
+        """Setup time block comparison section"""
+        block_frame = tk.LabelFrame(self, text="Compare Time Blocks (Optional)", 
+                                    padx=10, pady=10)
+        block_frame.pack(fill="x", padx=20, pady=10)
+        
+        # Info text
+        info_text = ("Load an Excel file with time blocks to compare breathing metrics across conditions.\n"
+                     "Format: Column 1: Start (s), Column 2: End (s), Column 3: Label (e.g., 'Baseline', 'Stimulus')")
+        tk.Label(block_frame, text=info_text, font=("Arial", 9), 
+                 fg="gray", justify="left", wraplength=700).pack(anchor="w", pady=(0, 10))
+        
+        # Example
+        example_frame = tk.Frame(block_frame, relief="sunken", bd=1, bg="#f0f0f0")
+        example_frame.pack(fill="x", pady=(0, 10))
+        example_text = ("Example: 0-60s: Baseline → 60-120s: Stimulus → 120-180s: Recovery")
+        tk.Label(example_frame, text=example_text, font=("Courier", 8), 
+                 bg="#f0f0f0", justify="left").pack(padx=5, pady=3, anchor="w")
+        
+        # Buttons
+        button_frame = tk.Frame(block_frame)
+        button_frame.pack(fill="x")
+        
+        tk.Button(button_frame, text="Load Time Block File",
+                 command=self.controller.load_event_file,
+                 bg="lightblue").pack(side="left", padx=(0, 10))
+        
+        tk.Button(button_frame, text="Clear Blocks",
+                 command=self.controller.clear_events,
+                 bg="lightcoral").pack(side="left")
+        
+        self.analyze_blocks_btn = tk.Button(button_frame, text="Analyze & Compare Blocks",
+                                           command=self.controller.analyze_blocks,
+                                           bg="lightgreen", font=("Arial", 9, "bold"),
+                                           state="disabled")
+        self.analyze_blocks_btn.pack(side="left", padx=(10, 0))
+        
+        # Block status display - NOW SCROLLABLE with fixed height
+        status_container = tk.Frame(block_frame)
+        status_container.pack(fill="x", pady=(10, 0))
+        
+        # Create scrollable text widget
+        self.event_status_text = tk.Text(status_container, height=4, wrap=tk.WORD,
+                                         font=("Arial", 9), bg="white", 
+                                         relief="sunken", bd=1)
+        scrollbar = tk.Scrollbar(status_container, command=self.event_status_text.yview)
+        self.event_status_text.config(yscrollcommand=scrollbar.set)
+        
+        self.event_status_text.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Insert initial text
+        self.event_status_text.insert("1.0", "No time block file loaded")
+        self.event_status_text.config(state="disabled", fg="gray")
     
     def setup_plot_area(self):
         """Setup plot display area"""
@@ -109,7 +164,7 @@ class ProcessingPage(tk.Frame):
     def setup_navigation(self):
         """Setup navigation buttons"""
         nav_frame = tk.Frame(self)
-        nav_frame.pack(fill="x", padx=20, pady=20)
+        nav_frame.pack(fill="x", padx=20, pady=10)
         
         tk.Button(nav_frame, text="← Preprocessing",
                  command=lambda: self.controller.show_frame("PreprocessingPage")).pack(side="left")
@@ -162,9 +217,11 @@ class ProcessingPage(tk.Frame):
                     font=("Arial", 12), fg="gray").pack(expand=True, pady=50)
             return
         
+        # For now, use placeholders
         for plot_name in plot_names:
             self.add_plot_placeholder(plot_name.replace("_", " ").title())
         
+        # Update scrollable area
         self.plot_frame.update_idletasks()
         self.plot_canvas.configure(scrollregion=self.plot_canvas.bbox("all"))
     
@@ -184,7 +241,68 @@ class ProcessingPage(tk.Frame):
             'format': self.export_format.get(),
             'selected_plots': self.get_selected_plots()
         }
- 
+    
+    def update_event_status(self, filepath, summary):
+        """Update block status display"""
+        import os
+        filename = os.path.basename(filepath)
+        status_text = f"Loaded: {filename}\n\n{summary}"
+        
+        self.event_status_text.config(state="normal", fg="green")
+        self.event_status_text.delete("1.0", tk.END)
+        self.event_status_text.insert("1.0", status_text)
+        self.event_status_text.config(state="disabled")
+        
+        # Enable block analysis
+        self.analyze_blocks_btn.config(state="normal")
+    
+    
+    def clear_event_status(self):
+        """Clear block status display"""
+        self.event_status_text.config(state="normal", fg="gray")
+        self.event_status_text.delete("1.0", tk.END)
+        self.event_status_text.insert("1.0", "No time block file loaded")
+        self.event_status_text.config(state="disabled")
+        self.analyze_blocks_btn.config(state="disabled")
+    
+    def enable_block_comparison(self):
+        """Enable UI elements after successful block analysis"""
+        # Could add a "View Comparison Results" button here if needed
+        pass
+    
+    def display_block_comparison_plots(self, block_analysis):
+        """
+        Display block comparison plots in the plot area.
+        
+        Args:
+            block_analysis (dict): Block analysis results from model
+        """
+
+        from app.utils.block_plotting import plot_block_comparison_bar, plot_multiple_metrics_comparison
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        
+        # Clear existing plots
+        self.clear_plots()
+        
+        # Create main breathing rate comparison
+        fig1 = plot_block_comparison_bar(block_analysis, 
+                                          metric='breathing_rate_bpm',
+                                          title='Breathing Rate Comparison by Condition')
+        canvas1 = FigureCanvasTkAgg(fig1, self.plot_frame)
+        canvas1.draw()
+        canvas1.get_tk_widget().pack(fill="x", pady=10)
+        
+        # Create multi-metric comparison
+        fig2 = plot_multiple_metrics_comparison(block_analysis)
+        canvas2 = FigureCanvasTkAgg(fig2, self.plot_frame)
+        canvas2.draw()
+        canvas2.get_tk_widget().pack(fill="x", pady=10)
+        
+        # Update scrollable area
+        self.plot_frame.update_idletasks()
+        self.plot_canvas.configure(scrollregion=self.plot_canvas.bbox("all"))
+        
+     
 # =============================================================================
 # Test Script to run this page independently from the project root
 # =============================================================================
