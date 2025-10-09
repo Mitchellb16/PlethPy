@@ -55,17 +55,17 @@ def load_smr(file_path, stream_index=0):
         print(f"Error: Stream index {stream_index} out of range (0-{len(seg.analogsignals)-1})")
         return None, None
         
-        # Get the specified analog signal
-        anasig = seg.analogsignals[stream_index]
-        
-        # Convert to pandas Series
-        signal_array = np.array(anasig)
-        signal = pd.Series(signal_array.flatten())
-        
-        # Get sampling rate
-        sampling_rate = float(anasig.sampling_rate)
-        
-        print(f"Loading SMR file: {file_path}, stream index: {stream_index}")
-        print(f"Loaded data shape: {signal.shape}")
-        
-        return signal, sampling_rate
+    # Get the specified analog signal
+    anasig = seg.analogsignals[stream_index]
+    
+    # Convert to pandas Series
+    signal_array = np.array(anasig)
+    signal = pd.Series(signal_array.flatten())
+    
+    # Get sampling rate
+    sampling_rate = float(anasig.sampling_rate)
+    
+    print(f"Loading SMR file: {file_path}, stream index: {stream_index}")
+    print(f"Loaded data shape: {signal.shape}")
+    
+    return signal, sampling_rate
