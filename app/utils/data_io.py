@@ -19,6 +19,7 @@ def load_csv(file_path):
         signal = df['RSP']
         # You'll need to get the sampling rate from a header or user input
         sampling_rate = 1000 # Example, replace with real logic
+        print('Warning: not yet implemented, default 1kHz sampling rate used')
         return signal, sampling_rate
     except Exception as e:
         print(f"Error loading CSV file: {e}")
