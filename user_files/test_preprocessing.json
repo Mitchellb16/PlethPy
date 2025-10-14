@@ -1,0 +1,8 @@
+{
+    "cleaning_method": "khodadad2018",
+    "find_peaks_method": "khodadad2018",
+    "lowcut": 1.0,
+    "highcut": 20.0,
+    "start_time": 95.0,
+    "end_time": 105.0
+}
