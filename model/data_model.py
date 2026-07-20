@@ -4,7 +4,7 @@ from .file_handler import (load_smr_file_path, read_smr_streams,
                            get_load_filepath, load_settings_from_json,
                            _read_events_file_from_disk, save_dataframe_to_file)
 
-from .processing_algorithms import rsp_clean as local_rsp_clean
+from .processing_algorithms import rsp_clean, rsp_process
 import traceback
 import numpy as np
 import neurokit2 as nk
@@ -84,7 +84,7 @@ class DataModel:
         raw_signal_array = raw_signal_series.values
 
         # 1. Apply cleaning filter to the NumPy array
-        cleaned_array = local_rsp_clean(
+        cleaned_array = rsp_clean(
             rsp_signal=raw_signal_array,
             sampling_rate=sampling_rate,
             method=params.get('cleaning_method'),
@@ -180,29 +180,23 @@ class DataModel:
 
         _name, raw_signal_series, sampling_rate = self.streams[self.current_stream_index]
         sampling_rate = int(sampling_rate)
-
-        original_nk_clean = nk.rsp_clean
-        try:
-            nk.rsp_clean = local_rsp_clean
-            print("Monkey patch applied. Running nk.rsp_process with custom parameters.")
-
             
-            # We now call rsp_process with the documented keyword arguments.
-            # Our custom 'lowcut' and 'highcut' are passed as **kwargs,
-            # which our patched rsp_clean function will correctly interpret.
-            self.processed_signals, self.processed_info = nk.rsp_process(
-                raw_signal_series,
-                sampling_rate=sampling_rate,
-                method_cleaning=params.get('cleaning_method'), # CORRECT keyword
-                method_peaks=params.get('find_peaks_method'),    # CORRECT keyword
-                lowcut=params.get('lowcut'),
-                highcut=params.get('highcut')
-            )
-            print("Full processing complete.")
+        print(f'Parameters: {params}')
 
-        finally:
-            nk.rsp_clean = original_nk_clean
-            print("Monkey patch restored.")
+        # We now call rsp_process with the documented keyword arguments.
+        # Our custom 'lowcut' and 'highcut' are passed as **kwargs,
+        # which our patched rsp_clean function will correctly interpret.
+        self.processed_signals, self.processed_info = rsp_process(
+            raw_signal_series,
+            sampling_rate=sampling_rate,
+            method_cleaning=params.get('cleaning_method'), # CORRECT keyword
+            method_peaks=params.get('find_peaks_method'),    # CORRECT keyword
+            lowcut=params.get('lowcut'),
+            highcut=params.get('highcut')
+        )
+        self.processed_signals.to_csv("Test.csv")
+        print("Full processing complete.")
+
 
     def generate_summary_plot(self):
         """
@@ -266,8 +260,9 @@ class DataModel:
             # --- 2. Prepare Inputs for nk.epochs_create ---
             onsets_in_samples = (events_df['start_times'] * sampling_rate).astype(int).values
             
-            durations_in_seconds = events_df['end_times'] - events_df['start_times']
-            durations_in_samples = (durations_in_seconds * sampling_rate).astype(int).values.tolist()
+            offsets_in_samples = (events_df['end_times'] * sampling_rate).astype(int).values
+            
+            durations = (events_df['end_times'] - events_df['start_times']).to_list()
             
             event_labels = events_df['event_name'].values
 
@@ -282,17 +277,22 @@ class DataModel:
                 events=onsets_in_samples,
                 sampling_rate=sampling_rate,
                 epochs_start=0,
-                epochs_end=durations_in_samples,
+                epochs_end= durations,
                 event_labels=event_labels
             )
+            print(epochs)
 
             # --- 4. Run the Analysis ---
             if analysis_type == "event":
                 print("Running event-related analysis...")
                 analysis_results = nk.rsp_eventrelated(epochs)
+                
             elif analysis_type == "interval":
                 print("Running interval-related analysis...")
-                analysis_results = nk.rsp_intervalrelated(epochs, sampling_rate)
+                analysis_results = nk.rsp_intervalrelated(events_df, sampling_rate)
+                print("Ti returned:", analysis_results["RSP_Phase_Duration_Inspiration"].iloc[0])
+                print("Te returned:", analysis_results["RSP_Phase_Duration_Expiration"].iloc[0])
+                
             else:
                 return f"Error: Unknown analysis type '{analysis_type}' specified."
             
