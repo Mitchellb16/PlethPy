@@ -4,7 +4,7 @@ from .file_handler import (load_smr_file_path, read_smr_streams,
                            get_load_filepath, load_settings_from_json,
                            _read_events_file_from_disk, save_dataframe_to_file)
 
-from .processing_algorithms import rsp_clean, rsp_process
+from .processing_algorithms import rsp_clean, rsp_process, make_intervals
 import traceback
 import numpy as np
 import neurokit2 as nk
@@ -271,25 +271,28 @@ class DataModel:
             # nk.epochs_create expects a single signal (a 1D array or Series),
             # not the entire multi-column DataFrame from rsp_process.
             # We must specify the "RSP_Clean" column to use for the epochs.
-            print("Creating epochs from the processed signal...")
-            epochs = nk.epochs_create(
-                self.processed_signals,
-                events=onsets_in_samples,
-                sampling_rate=sampling_rate,
-                epochs_start=0,
-                epochs_end= durations,
-                event_labels=event_labels
-            )
-            print(epochs)
-
+            
+            
+            # make separate epochs if we are running interval_related
+            
             # --- 4. Run the Analysis ---
             if analysis_type == "event":
                 print("Running event-related analysis...")
+                print("Creating epochs from the processed signal...")
+                epochs = nk.epochs_create(
+                    self.processed_signals,
+                    events=onsets_in_samples,
+                    sampling_rate=sampling_rate,
+                    epochs_start=0,
+                    epochs_end= durations,
+                    event_labels=event_labels
+                )
                 analysis_results = nk.rsp_eventrelated(epochs)
                 
             elif analysis_type == "interval":
                 print("Running interval-related analysis...")
-                analysis_results = nk.rsp_intervalrelated(events_df, sampling_rate)
+                intervals = make_intervals(self.processed_signals, events_df, sampling_rate)
+                analysis_results = nk.rsp_intervalrelated(intervals, sampling_rate)
                 print("Ti returned:", analysis_results["RSP_Phase_Duration_Inspiration"].iloc[0])
                 print("Te returned:", analysis_results["RSP_Phase_Duration_Expiration"].iloc[0])
                 

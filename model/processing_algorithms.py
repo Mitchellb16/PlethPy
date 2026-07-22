@@ -225,3 +225,49 @@ def rsp_process(rsp_signal, sampling_rate=1000, method="khodadad2018", method_rv
         create_report(file=report, signals=signals, info=methods, fig=fig)
 
     return signals, info
+
+
+
+def make_intervals(signals, event_df, sampling_rate):
+    """
+    Takes processed rsp signal output and slices into intervals according to event_df
+
+    Parameters
+    ----------
+    signals : TYPE
+        DESCRIPTION.
+    event_df : TYPE
+        DESCRIPTION.
+    sampling_rate : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    interval_dict: dictionary
+        Dictionary containing event names as keys and dataframes as items
+
+    """
+    
+    interval_dict = {}
+    
+    for index, row in event_df.iterrows():
+        
+        # calculate nearest index for slicing
+        start_idx = int(row.start_times * sampling_rate)
+        end_idx = int(row.end_times * sampling_rate)
+        
+        # slice the signals
+        sliced_df = signals.loc[start_idx:end_idx, :]
+        
+        # add label column
+        sliced_df['Label'] = row.event_name
+        
+        # add to dictionary under event name
+        interval_dict[row.event_name] = sliced_df
+        
+    
+    return interval_dict
+        
+        
+    
+    
